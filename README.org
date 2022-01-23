@@ -1,0 +1,23 @@
+#+TITLE: rt - Simple ray tracer in C
+#+AUTHOR: Jean-Baptiste Loutfalla
+#+DATE:
+#+LANGUAGE: en
+#+OPTIONS: toc:nil; num:nil
+
+This is a simple implementation in C of the ray tracer presented in
+[[https://raytracing.github.io][Peter Shirley's books]] with some enhancements like multi-threaded
+rendering.
+
+** Build
+First of all, you will need =make= and the =pthread= library to build
+=rt=. If you don't have it or you don't want multi-threaded rendering,
+you can go comment everything related to this in [[./src/rt.c][rt.c]]
+and change the =run= rule in the [[./Makefile][Makefile]] to use the
+commented command instead.
+#+BEGIN_SRC shell
+  make # Just to create rt executable
+  make run # Create rt executable and run it
+#+END_SRC
+
+** Results
+[[./out.png]]

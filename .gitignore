@@ -1,0 +1,8 @@
+build/**
+*TAGS
+*PATH
+*.ppm
+*.png
+*.jpg
+*.jpeg
+rt
