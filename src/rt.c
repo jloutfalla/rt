@@ -15,6 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
+#include <stdint.h>
+#include <string.h>
 #include <time.h>
 #include <pthread.h>
 
@@ -29,7 +31,7 @@
 #include "hittables/sphere.h"
 
 #ifndef MAXTHREAD
-#define MAXTHREAD 16
+#define MAXTHREAD 24
 #endif /* MAXTHREAD */
 
 #ifdef THREADED
@@ -42,14 +44,16 @@
 void    *thread_compute (void *arg);
 void     random_scene (world_t *world, material_list *mat_list);
 
+static uint8_t *thread_buffers[MAXTHREAD] = {0};
+
 typedef struct
 {
-  uint8_t *pixel_buffer;
   size_t buffer_size;
   world_t *world;
   material_list *mat_list;
   camera cam;
-  
+
+  int thread_index;
   int width;
   int height;
   int samples;
@@ -58,36 +62,35 @@ typedef struct
 } rt_thread_t;
 
 int
-main ()
+main (void)
 {
   srand (time (NULL));
-  
+
   /* Image */
   const double aspect_ratio = 3.0 / 2.0;
   const int width = 1200;
   const int height = (int)(width / aspect_ratio);
   const int samples = 500;
   const int max_depth = 50;
-  
+
   /* Materials list & World */
   material_list *mat_list = material_list_init ();
   world_t *world = world_init ();
 
   random_scene (world, mat_list);
-  
+
   /* Camera */
   point lookfrom = vec3_init (13.0, 2.0, 3.0);
   point lookat   = vec3_init ( 0.0, 0.0, 0.0);
   vec3 vup       = vec3_init ( 0.0, 1.0, 0.0);
   double dist_to_focus = 10.0;
   double aperture = 0.1;
-  
+
   camera cam = camera_init (lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
 
   /* Render */
   if (THREADED)
     {
-      uint8_t *image = (uint8_t *)malloc (width * height * 3);
       int nb_threads = MAXTHREAD;
       while (nb_threads > 0 && height % nb_threads != 0)
         nb_threads--;
@@ -97,20 +100,20 @@ main ()
 
       printf ("%dx%d\n", width, height);
       printf ("Creating %d threads\n", nb_threads);
-      pthread_t *threads = (pthread_t *)malloc (nb_threads * sizeof (pthread_t));
+      pthread_t *threads = (pthread_t *)malloc (nb_threads * sizeof (*threads));
 
       const int pixel_line = width * 3;
       const int nb_lines = height / nb_threads;
       const size_t buff_size = nb_lines * pixel_line;
-  
+
       for (int i = 0; i < nb_threads; ++i)
         {
           rt_thread_t *arg = (rt_thread_t *)malloc (sizeof (rt_thread_t));
-          arg->pixel_buffer = image + i * nb_lines * pixel_line;
           arg->buffer_size = buff_size;
           arg->world = world;
           arg->mat_list = mat_list;
           arg->cam = cam;
+          arg->thread_index = i;
           arg->width = width;
           arg->height = height;
           arg->samples = samples;
@@ -124,7 +127,16 @@ main ()
         pthread_join (threads[i], NULL);
 
       free (threads);
-      
+
+      uint8_t *image = (uint8_t *)malloc (width * height * 3);
+      uint8_t *img_iter = image;
+      for (int i = 0; i < nb_threads; ++i)
+        {
+          memcpy ((void *)img_iter, (void *)thread_buffers[i], buff_size);
+          free ((void *)thread_buffers[i]);
+          img_iter += buff_size;
+        }
+
       save_png ("out.png", width, height, image);
       free (image);
     }
@@ -158,7 +170,7 @@ main ()
     }
   world_release (world);
   material_list_release (mat_list);
-  
+
   return 0;
 }
 
@@ -169,8 +181,11 @@ thread_compute (void *arg)
   if (data == NULL)
     return NULL;
 
-  uint8_t *pixel_buffer = data->pixel_buffer;
+  int thread_index = data->thread_index;
   size_t buffer_size = data->buffer_size;
+  uint8_t *pixel_buffer = (uint8_t *)malloc (buffer_size);
+  thread_buffers[thread_index] = pixel_buffer;
+
   world_t *world = data->world;
   material_list *mat_list = data->mat_list;
   camera cam = data->cam;
@@ -178,7 +193,7 @@ thread_compute (void *arg)
   int height = data->height;
   int samples = data->samples;
   int max_depth = data->depth;
-  
+
   int j = height - 1 - data->line;
 
   color pixel;
@@ -196,7 +211,7 @@ thread_compute (void *arg)
               ray r = camera_get_ray (cam, u, v);
               pixel = vec3_add (pixel, ray_color (r, mat_list, world, max_depth)); 
             }
-          pixel_buffer = write_pixel(pixel_buffer, pixel, samples);
+          pixel_buffer = write_pixel (pixel_buffer, pixel, samples);
           offset += (pixel_buffer - tmp);
         }
       j--;
@@ -213,7 +228,7 @@ void random_scene (world_t *world, material_list *mat_list)
   point center;
   const point min_offset = vec3_init (4.0, 0.2, 0.0);
   material sphere_mat = { 0 };
-  
+
   lambertian ground = lambertian_create (vec3_init (0.5, 0.5, 0.5));
   int ground_idx = material_list_add (mat_list, ground);
   world_add(world, sphere_create(vec3_init (0.0, -1000.0, 0.0), 1000.0, ground_idx));
